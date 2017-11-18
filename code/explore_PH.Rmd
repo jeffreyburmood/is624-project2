@@ -33,7 +33,8 @@ str(df)
 
 ```
 
-Missing values
+
+## Analyze missing values
 
 ```{r eval=T, warning=F, message=F}
 
@@ -49,14 +50,21 @@ df2[df2==0] <- NA
 # OK, this dataset matches NAs to the 0 counts we had
 # summary(missing)
 
+# 47 percent of observations have missing data
+mean(!complete.cases(df2))
+
 # now let's see if there are missingness is correlated
-# x <- as.data.frame(abs(is.na(df2)))
-# y <- x[which(apply(x,2,sum)>0)]
-# cor(y)
+x <- as.data.frame(abs(is.na(df2)))
+y <- x[which(apply(x,2,sum)>0)]
+cor(y)
 
 # correlation plot shows missingness correlated for hydro
-# correlations <- cor(y)
-# corrplot(correlations, method="circle")
+correlations <- cor(y)
+corrplot(correlations, method="circle")
+
+# PH has a strong (+.70) missingness correlation with Mnf.Flow and modest correlations (<.50)
+# with Fill.Pressure (.42), Filler.Level (.45), Density (.49), Bailing (.50), and
+# Alch.Rel, Carb.Rel, Bailing.Lvl (.33, .31, 35)
 
 # the scales for these variables are vastly different
 # so we should be centering and scaling
@@ -67,11 +75,31 @@ df2[df2==0] <- NA
 
 df2$Brand.Code <- as.character(df2$Brand.Code)
 df2$Brand.Code <- as.factor(df2$Brand.Code)
-summary(df2$Brand.Code)
+# summary(df2$Brand.Code)
 
 ```
 
-Let's look at complete cases and differences by Brand.Code
+## Recode Brand.Name as dummy variable
+
+```{r}
+# make the dummies
+dummy_brand_code <- dummy.code(df2$Brand.Code)
+# get index for missing observations
+na_id <- is.na(df2$Brand.Code)
+
+## put NA where `test` is NA (we have used recycling rule here)
+dummy_brand_code[na_id] <- NA
+
+# check to see that it corresponds with original data
+dummy_brand_code <- data.frame(dummy_brand_code)
+colnames(dummy_brand_code) <- c("A_dum","B_dum", "C_dum", "D_dum")
+
+# combine with other data; be sure to remember when modeling
+df2 <- cbind(df2, dummy_brand_code)
+
+```
+
+## Let's look at complete cases and differences by Brand.Code
 
 ```{r}
 
@@ -84,6 +112,16 @@ ungroup(df3) %>%
   summarise_all(funs(mean, median))
 
 ```
+
+## How are data correlated (complete cases)?
+
+```{r}
+
+complete_correlated <- cor(df3[,-1])
+corrplot(complete_correlated, "circle")
+
+```
+
 
 ## Plot distributions
 
@@ -125,7 +163,7 @@ for(i in 26:33) {
 
 ## Imputing data with mi package
 
-```{r eval=F}
+```{r eval=T}
 
 # load the mi package to analyze missingess
 suppressMessages(library(mi))
@@ -183,9 +221,9 @@ df_imp <- dfs$`chain:1`[1:33]
 
 ```
 
-## Try some models model
+## Try some models on mi imputed data
 
-```{r}
+```{r eval=F}
 # Run algorithms using 10-fold cross-validation
 trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
 metric <- "RMSE"
@@ -229,7 +267,7 @@ summary(feature_results)
 
 ## Look at correlated vars and remove highly correlated
 
-```{r}
+```{r eval=F}
 
 # which ones are too above cor .70?
 
@@ -247,7 +285,7 @@ dim(df_imp2)
 
 ```
 
-## Run the models again
+## Try some models with clean cases
 
 ```{r}
 # Run algorithms using 10-fold cross-validation
@@ -256,7 +294,85 @@ metric <- "RMSE"
 
 # LM
 set.seed(100)
-fit.lm <- train(PH~., data=df_imp2, method="lm", metric=metric,
+fit.lm <- train(PH~., data=df3, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(100)
+fit.glm <- train(PH~., data=df3, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(100)
+fit.glmnet <- train(PH~., data=df3, method="glmnet", metric=metric,
+                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(100)
+fit.svm <- train(PH~., data=df3, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(100)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~., data=df3, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(100)
+fit.knn <- train(PH~., data=df3, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+
+summary(feature_results)
+
+```
+
+## Try ensembles 
+
+```{r warning=F, message=F}
+
+# try ensembles
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# Random Forest
+set.seed(100)
+fit.rf <- train(PH~., data=df3, method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                trControl=trainControl)
+
+# Stochastic Gradient Boosting
+set.seed(100)
+fit.gbm <- train(PH~., data=df3, method="gbm", metric=metric,
+                 preProc=c("center", "scale"),
+                 trControl=trainControl, verbose=FALSE)
+
+# Cubist
+set.seed(100)
+fit.cubist <- train(PH~., data=df3, method="cubist", metric=metric,
+                    ppreProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+ensembleResults <- resamples(list(RF=fit.rf, GBM=fit.gbm, CUBIST=fit.cubist))
+
+summary(ensembleResults)
+
+fit.rf
+
+```
+
+## try basics
+
+```{r}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(100)
+fit.lm2 <- train(x=df_med, y=df_med$PH, method="lm", metric=metric,
                 preProc=c("center", "scale"), trControl=trainControl)
 
 # GLM
@@ -290,9 +406,3 @@ feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
 summary(feature_results)
 
 ```
-
-
-```{r}
-
-```
-
