@@ -1,0 +1,298 @@
+---
+title: "Project 2, Data Exploration"
+author: ""
+subtitle: CUNY MSDA DATA 624
+output:
+    prettydoc::html_pretty:
+    theme: leonid
+    highlight: github
+    toc: yes
+---
+  
+***  
+<br>
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Get the data
+
+Also check for missing data
+
+```{r warning=F, message=F}
+
+# load packages
+
+# load required packages
+suppressMessages(library(easypackages))
+suppressMessages(libraries("tidyverse", "nnet", "kernlab", "caret", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "Hmisc", "mi", "betareg", "rpart", "party", "partykit", "gbm", "ipred"))
+
+# read in the data
+df <- read.csv("data/StudentData.csv", header=T, strip.white=T)
+str(df)
+
+```
+
+Missing values
+
+```{r eval=T, warning=F, message=F}
+
+# is 0 a stand-in for NA?
+zero_vals <- data.frame(cbind(colSums(df==0)))
+colnames(zero_vals) <- "zero_count"
+# write.csv(zero_vals, "data/zero_vals.csv")
+
+# make copy of df; replae 0 with NA
+df2 <- df
+df2[df2==0] <- NA
+
+# OK, this dataset matches NAs to the 0 counts we had
+# summary(missing)
+
+# now let's see if there are missingness is correlated
+# x <- as.data.frame(abs(is.na(df2)))
+# y <- x[which(apply(x,2,sum)>0)]
+# cor(y)
+
+# correlation plot shows missingness correlated for hydro
+# correlations <- cor(y)
+# corrplot(correlations, method="circle")
+
+# the scales for these variables are vastly different
+# so we should be centering and scaling
+# summary(df2)
+
+# brand name now has the wrong number of levels for a factor
+# need to reset it
+
+df2$Brand.Code <- as.character(df2$Brand.Code)
+df2$Brand.Code <- as.factor(df2$Brand.Code)
+summary(df2$Brand.Code)
+
+```
+
+Let's look at complete cases and differences by Brand.Code
+
+```{r}
+
+# get complete cses (1,361 rows)
+df3 <- df2[complete.cases(df2),]
+
+# group means and medians by Brand.Code
+ungroup(df3) %>% 
+  group_by(Brand.Code) %>% 
+  summarise_all(funs(mean, median))
+
+```
+
+## Plot distributions
+
+```{r eval=T, fig.width=12}
+# histograms each attribute
+par(mfrow=c(2,4))
+for(i in 2:9) {
+  hist(df3[,i], main=names(df3)[i], col="lightblue")
+}
+
+```
+
+```{r eval=T, fig.width=12}
+# histograms each attribute
+par(mfrow=c(2,4))
+for(i in 10:17) {
+  hist(df3[,i], main=names(df3)[i], col="lightblue")
+}
+
+```
+
+```{r eval=T, fig.width=12}
+# histograms each attribute
+par(mfrow=c(2,4))
+for(i in 18:25) {
+  hist(df3[,i], main=names(df3)[i], col="lightblue")
+}
+
+```
+
+
+```{r eval=T, fig.width=12}
+# histograms each attribute
+par(mfrow=c(2,4))
+for(i in 26:33) {
+  hist(df3[,i], main=names(df3)[i], col="lightblue")
+}
+```
+
+## Imputing data with mi package
+
+```{r eval=F}
+
+# load the mi package to analyze missingess
+suppressMessages(library(mi))
+
+# create a missing data frame
+mdf <- missing_data.frame(df2)
+
+```
+
+## Summarize what's missing
+
+```{r eval=F}
+# show missingness data frame
+show(mdf)
+
+```
+
+## Plot the missingness dataframe
+
+```{r}
+
+image(mdf)
+
+```
+
+## Impute missing values
+
+```{r eval=F}
+options(mc.cores = 2)
+imputations <- mi(mdf, n.iter = 30, n.chains = 4, max.minutes = 5)
+show(imputations)
+
+```
+
+## Check means
+
+```{r eval=F}
+
+round(mipply(imputations, mean, to.matrix = TRUE), 3)
+
+```
+
+```{r eval=F}
+
+plot(imputations)
+
+```
+
+```{r eval=F}
+# get one of the imputed data frames
+dfs <- complete(imputations, m = 2)
+lapply(dfs, summary)
+
+df_imp <- dfs$`chain:1`[1:33]
+
+```
+
+## Try some models model
+
+```{r}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(100)
+fit.lm <- train(PH~., data=df_imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(100)
+fit.glm <- train(PH~., data=df_imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(100)
+fit.glmnet <- train(PH~., data=df_imp, method="glmnet", metric=metric,
+                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(100)
+fit.svm <- train(PH~., data=df_imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(100)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~., data=df_imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(100)
+fit.knn <- train(PH~., data=df_imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+
+summary(feature_results)
+
+```
+
+## Look at correlated vars and remove highly correlated
+
+```{r}
+
+# which ones are too above cor .70?
+
+tooHigh <- findCorrelation(cor(df_imp[,-1]), cutoff = .70)
+head(df_imp[, tooHigh])
+
+# find attributes that are highly correlated
+set.seed(100)
+
+# create a new dataset without highly correlated features
+df_imp2 <- df_imp[,-tooHigh]
+dim(df_imp2)
+
+# down to 23 vars
+
+```
+
+## Run the models again
+
+```{r}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(100)
+fit.lm <- train(PH~., data=df_imp2, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(100)
+fit.glm <- train(PH~., data=df_imp2, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(100)
+fit.glmnet <- train(PH~., data=df_imp2, method="glmnet", metric=metric,
+                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(100)
+fit.svm <- train(PH~., data=df_imp2, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(100)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~., data=df_imp2, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(100)
+fit.knn <- train(PH~., data=df_imp2, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+
+summary(feature_results)
+
+```
+
+
+```{r}
+
+```
+
