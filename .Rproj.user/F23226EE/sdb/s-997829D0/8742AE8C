@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "\"\",\"zero_count\"\n\"Brand.Code\",120\n\"Carb.Volume\",10\n\"Fill.Ounces\",38\n\"PC.Volume\",39\n\"Carb.Pressure\",27\n\"Carb.Temp\",26\n\"PSC\",33\n\"PSC.Fill\",35\n\"PSC.CO2\",147\n\"Mnf.Flow\",2\n\"Carb.Pressure1\",32\n\"Fill.Pressure\",22\n\"Hyd.Pressure1\",851\n\"Hyd.Pressure2\",793\n\"Hyd.Pressure3\",828\n\"Hyd.Pressure4\",30\n\"Filler.Level\",20\n\"Filler.Speed\",57\n\"Temperature\",14\n\"Usage.cont\",5\n\"Carb.Flow\",2\n\"Density\",1\n\"MFR\",212\n\"Balling\",1\n\"Pressure.Vacuum\",0\n\"PH\",4\n\"Oxygen.Filler\",12\n\"Bowl.Setpoint\",2\n\"Pressure.Setpoint\",12\n\"Air.Pressurer\",0\n\"Alch.Rel\",9\n\"Carb.Rel\",10\n\"Balling.Lvl\",8\n",
+    "created" : 1510526031115.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "749746765",
+    "id" : "8742AE8C",
+    "lastKnownWriteTime" : 1510526079,
+    "last_content_update" : 1510526079,
+    "path" : "~/Dropbox/CUNY/IS624/is624-project2/code/data/zero_vals.csv",
+    "project_path" : "code/data/zero_vals.csv",
+    "properties" : {
+    },
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "text"
+}

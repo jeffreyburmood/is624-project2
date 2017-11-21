@@ -1,0 +1,371 @@
+---
+title: "model_ph"
+author: "Tom Detzel"
+date: "11/19/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required packages
+suppressMessages(library(easypackages))
+suppressMessages(libraries("tidyverse", "nnet", "kernlab", "caret", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "Hmisc", "mi", "betareg", "mice", "rpart", "party", "partykit", "gbm", "ipred", "VIM"))
+
+```
+
+## Imputing data with mi package
+
+```{r eval=T}
+
+# load the mi package to analyze missingess
+suppressMessages(library(mi))
+
+# create a missing data frame
+mdf <- missing_data.frame(df2)
+
+```
+
+## Summarize what's missing
+
+```{r eval=F}
+# show missingness data frame
+show(mdf)
+
+```
+
+## Plot the missingness dataframe
+
+```{r}
+
+image(mdf)
+
+```
+
+## Impute missing values
+
+```{r eval=F}
+options(mc.cores = 2)
+imputations <- mi(mdf, n.iter = 30, n.chains = 4, max.minutes = 5)
+show(imputations)
+
+```
+
+## Check means
+
+```{r eval=F}
+
+round(mipply(imputations, mean, to.matrix = TRUE), 3)
+
+```
+
+```{r eval=F}
+
+plot(imputations)
+
+```
+
+```{r eval=F}
+# get one of the imputed data frames
+dfs <- complete(imputations, m = 2)
+lapply(dfs, summary)
+
+df_imp <- dfs$`chain:1`[1:33]
+
+```
+
+## Try some models on mi imputed data
+
+```{r eval=F}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(100)
+fit.lm <- train(PH~., data=df_imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(100)
+fit.glm <- train(PH~., data=df_imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(100)
+fit.glmnet <- train(PH~., data=df_imp, method="glmnet", metric=metric,
+                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(100)
+fit.svm <- train(PH~., data=df_imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(100)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~., data=df_imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(100)
+fit.knn <- train(PH~., data=df_imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+
+summary(feature_results)
+
+```
+
+## Look at correlated vars and remove highly correlated
+
+```{r eval=F}
+
+# which ones are too above cor .70?
+
+tooHigh <- findCorrelation(cor(df_imp[,-1]), cutoff = .70)
+head(df_imp[, tooHigh])
+
+# find attributes that are highly correlated
+set.seed(100)
+
+# create a new dataset without highly correlated features
+df_imp2 <- df_imp[,-tooHigh]
+dim(df_imp2)
+
+# down to 23 vars
+
+```
+
+## Try some models with clean cases
+
+```{r}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(100)
+fit.lm <- train(PH~., data=df3[, -c(1,34)], method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(100)
+fit.glm <- train(PH~., data=df3[, -c(1,34)], method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(100)
+fit.glmnet <- train(PH~., data=df3[, -c(1,34)], method="glmnet", metric=metric,
+                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(100)
+fit.svm <- train(PH~., data=df3[1:33], method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(100)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~., data=df3[1:33], method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(100)
+fit.knn <- train(PH~., data=df3[1:33], method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+
+summary(feature_results)
+
+```
+
+## Try ensembles 
+
+```{r warning=F, message=F}
+
+# try ensembles
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# Random Forest
+set.seed(100)
+fit.rf <- train(PH~., data=df3, method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                trControl=trainControl)
+
+# Stochastic Gradient Boosting
+set.seed(100)
+fit.gbm <- train(PH~., data=df3, method="gbm", metric=metric,
+                 preProc=c("center", "scale"),
+                 trControl=trainControl, verbose=FALSE)
+
+# Cubist
+set.seed(100)
+fit.cubist <- train(PH~., data=df3, method="cubist", metric=metric,
+                    ppreProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+ensembleResults <- resamples(list(RF=fit.rf, GBM=fit.gbm, CUBIST=fit.cubist))
+
+summary(ensembleResults)
+
+fit.rf
+
+```
+
+# Tune the Cubist algorithm
+
+```{r}
+
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+grid <- expand.grid(.committees=seq(15, 25, by=1), .neighbors=c(3, 5, 7))
+
+set.seed(100)
+tune.cubist <- train(PH~., data=df3, method="cubist", metric=metric,
+    preProc=c("BoxCox"), tuneGrid=grid, trControl=trainControl)
+
+print(tune.cubist)
+
+varImp(tune.cubist)
+
+```
+
+## Tune Ridge, Lasso Regression (results aren't competitive)
+
+```{r}
+
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# Ridge Regression
+grid <- expand.grid(.lambda=10^seq(10,-2,length=100),
+                    .alpha=0)
+
+set.seed(100)
+fit.ridge <- train(PH~., data=df3[, -c(1,34)], method="glmnet", metric=metric,
+                    preProc=c("center", "scale"),
+                    trControl=trainControl,
+                    tuneGrid=grid)
+
+# Lasso over lambda grid
+grid <- expand.grid(.lambda=10^seq(10,-2,length=100),
+                    .alpha=1)
+
+set.seed(100)
+fit.lasso <- train(PH~., data=df3[, -c(1,34)], method="glmnet", metric=metric,
+                    preProc=c("center", "scale"),
+                    trControl=trainControl,
+                    tuneGrid=grid)
+
+# Compare algorithms
+ridgelassoResults <- resamples(list(ridge=fit.ridge, lasso=fit.lasso, CUBIST=fit.cubist))
+summary(ridgelassoResults)
+
+```
+
+## Tune Random Forest
+
+```{r}
+
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+set.seed(100)
+tune.rf <- train(PH~., data=df3[, -1], method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                importance=TRUE,
+                trControl=trainControl)
+
+tune.rf
+
+# try on original data with NA values
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+set.seed(100)
+tune.rf2 <- train(PH~., data=df2, method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                trControl=trainControl,
+                importance=TRUE,
+                na.action=na.omit)
+
+tune.rf2
+
+```
+
+## Tune conditional inference forest
+
+```{r}
+
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+set.seed(100)
+tune.cf <- train(PH~., data=df3[, -1], method="cforest", metric=metric,
+                preProc=c("center", "scale"),
+                importance=TRUE,
+                trControl=trainControl)
+
+tune.cf
+
+```
+
+## Variable importance
+
+```{r}
+
+varImp(tune.rf)
+
+```
+
+## try cubist, rf on imputed data
+
+```{r}
+
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+set.seed(100)
+tune.rf3 <- train(PH~., data=df_imp, method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                trControl=trainControl,
+                importance=TRUE,
+                na.action=na.omit)
+
+tune.rf3
+```
+
+
+```{r}
+
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+grid <- expand.grid(.committees=seq(15, 25, by=1), .neighbors=c(3, 5, 7))
+
+set.seed(100)
+tune.cubist2 <- train(PH~., data=df_imp, method="cubist", metric=metric,
+    preProc=c("BoxCox"), tuneGrid=grid, trControl=trainControl)
+
+```
+
+## Model comparisons
+
+```{r}
+
+# Compare algorithms
+modelResults <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+                               SVM=fit.svm, CART=fit.cart, KNN=fit.knn, tuneRidge=fit.ridge,
+                               tuneLasso=fit.lasso, tuneRF=tune.rf, tuneRF2=tune.rf2, 
+                               tuneRF3=tune.rf3, tuneCF=tune.cf,
+                               tuneCubist=tune.cubist, tuneCubist2=tune.cubist2))
+
+summary(modelResults)
+
+```
+
