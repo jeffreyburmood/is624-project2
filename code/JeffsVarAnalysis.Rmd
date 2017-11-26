@@ -1,0 +1,607 @@
+---
+title: "Jeff's Variable Analysis"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+  
+# Executive Summary  
+This is an analysis of the following predictor variables:  
+ $ Filler.Level     : num  121 119 120 118 119 ...  
+ $ Filler.Speed     : int  4002 3986 4020 4012 4010 4014 0 1004 4014 4028 ...  
+ $ Temperature      : num  66 67.6 67 65.6 65.6 66.2 65.8 65.2 65.4 66.6 ...  
+ $ Usage.cont       : num  16.2 19.9 17.8 17.4 17.7 ...  
+ $ Carb.Flow        : int  2932 3144 2914 3062 3054 2948 30 684 2902 3038 ...  
+ $ Density          : num  0.88 0.92 1.58 1.54 1.54 1.52 0.84 0.84 0.9 0.9 ...  
+ $ MFR              : num  725 727 735 731 723 ...  
+ $ Balling          : num  1.4 1.5 3.14 3.04 3.04 ...  
+  
+The following activities were performed:  
+1) Review basic statistics for each variable.  
+2) Remove rows where response variable value is zero.  
+3) Determined high number of zeros for predictor variables were actually missing data so replaced zeros with NAs.  
+4) Generated imputed values for all missing data in predictor variables.  
+5) Generated boxplots, histograms, and scatter plots for each predictor variable to analyze distributions.  
+6) Performed Box Cox transformations for variable with poor distributions.  
+7) Performed 1-on-1 regression analysis for each predictor variable against the response variable for numerous regression model focusing on RMSE optimization and compared models results.  
+8) Performed a step-wise, both forward and backward, generalize linear model analysis focused on optimizing AIC to identify the most revelant variable relationships.  
+  
+Variable Analysis Results:  
+The predictor variable distributions are generally poor, and all but one variable required a Box Cox-selected transformation which, in most cases, yielded only slight improvements.  
+  
+The 1-on-1 regression modeling yielding generally poor results with poor RMSE values and terrible R-squared values resulting in the conlusion that no single predictor variable from the set has a significant influence or effect on the response variable.  
+  
+The step-wise regression modeling resulting in generally poor results as well, but the resulting model did eliminate the variable Filler.Speed when arriving an the final model.  
+  
+Conclusions:  
+None of the predictor variables in this set have a significant influence on PH, and all have troubled data distributions. A comparision of the distribution anomallies should be made across all of the data set variables to determine if there is a systemic cause. Pending that analysis, the variables in this set, minus the Filler.Speed variable, should be combined with other candidate predictor variables for further modeling analysis.  
+  
+  
+```{r}
+suppressWarnings(suppressMessages(library(knitr)))
+suppressWarnings(suppressMessages(library(mice)))
+suppressWarnings(suppressMessages(library(fBasics)))
+suppressWarnings(suppressMessages(library(nnet)))
+suppressWarnings(suppressMessages(library(kernlab)))
+suppressWarnings(suppressMessages(library(caret)))
+suppressWarnings(suppressMessages(library(randomForest)))
+suppressWarnings(suppressMessages(library(mlbench)))
+suppressWarnings(suppressMessages(library(MASS)))
+suppressWarnings(suppressMessages(library(rpart)))
+suppressWarnings(suppressMessages(library(party)))
+suppressWarnings(suppressMessages(library(partykit)))
+suppressWarnings(suppressMessages(library(gbm)))
+suppressWarnings(suppressMessages(library(ipred)))
+suppressWarnings(suppressMessages(library(forecast)))
+
+#suppressMessages(libraries("tidyverse", "nnet", "kernlab", "caret", "randomForest", "mlbench","MASS", "stats", "pls", "Hmisc", "betareg", "rpart", "party", "partykit", "gbm", "ipred"))
+
+# read in the data locally
+ph.data <- read.csv("/Users/JeffAtLaptop/Dropbox/School/DATA624-PredictiveAnalytics/Project2/StudentData.csv",header = TRUE, stringsAsFactors = FALSE)
+summary(ph.data)
+```
+
+```{r,warning=FALSE}
+
+# setup the dataset with just jeffs variables
+jeffsList <- c("PH","Filler.Level", "Filler.Speed","Temperature","Usage.cont","Carb.Flow","Density","MFR","Balling")
+
+jeffsVars <- data.frame(ph.data[,jeffsList])
+summary(jeffsVars)
+
+# run the basic stats on the variables
+# Let's start by exploring the type of each variable
+types <- sapply(1:length(jeffsVars),function(x) typeof(jeffsVars[,x]))
+types.df <- data.frame(VAR=names(jeffsVars),TYPE=types)
+kable(types.df)
+
+# Show a statistical summary of the data
+kable(summary(jeffsVars[,1:5]))
+kable(summary(jeffsVars[,6:9]))
+
+# based on the summary, some of the PH values are 0.0, these rows should be removed since
+# we cannot calculate for a 0.0 PH
+jeffsVars <- jeffsVars[jeffsVars$PH>0.0,]
+
+# now we'll check how many variables have values of zero
+# show the frequency of zeros in the data for each variable
+apply(jeffsVars,2,function(x){sum(abs(x-0.0)<=1e-6)})
+# based on these counts, we'll replace zeros with NAs for the following variables
+index <- which(jeffsVars$Filler.Level <= 0.0)
+is.na(jeffsVars$Filler.Level) <- index
+index <- which(jeffsVars$Filler.Speed <= 0.0)
+is.na(jeffsVars$Filler.Speed) <- index
+index <- which(jeffsVars$Temperature <= 0.0)
+is.na(jeffsVars$Temperature) <- index
+index <- which(jeffsVars$Usage.cont <= 0.0)
+is.na(jeffsVars$Usage.cont) <- index
+index <- which(jeffsVars$Carb.Flow <= 0.0)
+is.na(jeffsVars$Carb.Flow) <- index
+index <- which(jeffsVars$MFR<= 0.0)
+is.na(jeffsVars$MFR) <- index
+# now we'll impute the NA values which represent missing values 
+#uses Predictive Mean Matching. 
+jeffsVars.imp <- complete(mice(jeffsVars, m = 3, print=F))
+#jeffsVars.imp <- complete(jeffsVars.tmp,1)
+# check that the NAs have all been resolved with imputed data
+any(is.na(jeffsVars.imp))
+# generate the basic stats for all variables, including the imputed values
+kable(basicStats(jeffsVars.imp[,1:5]))
+kable(basicStats(jeffsVars.imp[,6:9]))
+```
+Now we'll proceed with our analysis of the predictor variables.
+
+```{r,warning=FALSE}
+# set up the data combinations needed for the analysis
+jeffsVars.pred <- jeffsVars.imp[,-c(1)]
+head(jeffsVars.pred)
+
+# required data sets include a train and test set
+# form the training and test data partitions
+n = nrow(jeffsVars.imp)
+index <- sample(1:n, size = round(.80*n), replace = FALSE)
+jeffsVars.train <- jeffsVars.imp[index,]
+jeffsVars.test <- jeffsVars.imp[-index,]
+jeffsVars.pred.train <- jeffsVars.pred[index,]
+jeffsVars.pred.test <- jeffsVars.pred[-index,]
+
+```
+
+```{r,echo=FALSE,fig.width = 8, fig.height = 3}
+# now we'll analyze each variable to get a sense of the distribution of the data
+# Look at the boxplots of the numeric variables
+f <- colnames(jeffsVars.pred)  # establish the data categories to be studied
+par(mfrow=c(1,3))
+
+for (i in 1:length(f)){
+  boxplot(jeffsVars.pred[,i],main = f[i])
+}
+
+# we also need to look at the histograms for the numeric variables
+for (i in 1:length(f)){
+  m <- mean(jeffsVars.pred[,i])
+  s <- sd(jeffsVars.pred[,i])  
+  hist(jeffsVars.pred[,i],freq=FALSE,main = f[i],xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+}
+
+# let's also look at a quick plot of the data for each variable
+for (i in 1:length(f)){
+  plot(jeffsVars.pred[,i],main = f[i],xlab="",ylab="")
+}
+```
+Based on a quick analysis of the basic statistics and plots, all of the predictor variables except Filler.Level will require a transformation to address issues with the variable's data distribution.  
+  
+The Filler.Level variable distribution is fairly normal with few outliers so we will not perform any transformations and, instead, perform an analysis of how the variable interacts with the response variable in various regression models.  
+
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~Filler.Level, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~Filler.Level, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~Filler.Level, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~Filler.Level, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~Filler.Level, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+
+
+
+Next, we'll explore the effect of Box Cox transformations on the predictor variables with skewed or non-normal distributions.  
+  
+We'll start with Filler.Speed first.  
+```{r,warning=FALSE}
+# perform the Box Cox transformation and then look at the distribution
+lambda <- BoxCox.lambda(jeffsVars.pred$Filler.Speed)
+trans <- BoxCox(jeffsVars.pred$Filler.Speed,lambda)
+  m <- mean(trans)
+  s <- sd(trans)  
+  hist(trans,freq=FALSE,main = "Filler.Speed",xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+  plot(trans)
+jeffsVars.imp <- cbind(jeffsVars.imp,Filler.Speed.Trans=trans)
+```
+
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~Filler.Speed.Trans, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~Filler.Speed.Trans, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~Filler.Speed.Trans, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~Filler.Speed.Trans, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~Filler.Speed.Trans, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+  
+Next, we'll work with the Temperature variable.  
+We'll start with Filler.Speed first.  
+```{r,warning=FALSE}
+# look at a couple of the variables first
+lambda <- BoxCox.lambda(jeffsVars.pred$Temperature)
+trans <- BoxCox(jeffsVars.pred$Temperature,lambda)
+  m <- mean(trans)
+  s <- sd(trans)  
+  hist(trans,freq=FALSE,main = "Temperature",xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+  plot(trans)
+jeffsVars.imp <- cbind(jeffsVars.imp,Temperature.Trans=trans)
+```
+  
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~Temperature.Trans, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~Temperature.Trans, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~Temperature.Trans, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~Temperature.Trans, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~Temperature.Trans, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+  
+Next, we'll work with the Usage.cont variable.  
+```{r,warning=FALSE}
+# look at a couple of the variables first
+lambda <- BoxCox.lambda(jeffsVars.pred$Usage.cont)
+trans <- BoxCox(jeffsVars.pred$Usage.cont,lambda)
+  m <- mean(trans)
+  s <- sd(trans)  
+  hist(trans,freq=FALSE,main = "Usage.cont",xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+  plot(trans)
+jeffsVars.imp <- cbind(jeffsVars.imp,Usage.cont.Trans=trans)
+```
+  
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~Usage.cont.Trans, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~Usage.cont.Trans, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~Usage.cont.Trans, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~Usage.cont.Trans, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~Usage.cont.Trans, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+  
+Next, we'll work with the Carb.Flow variable.  
+```{r,warning=FALSE}
+# look at a couple of the variables first
+lambda <- BoxCox.lambda(jeffsVars.pred$Carb.Flow)
+trans <- BoxCox(jeffsVars.pred$Carb.Flow,lambda)
+  m <- mean(trans)
+  s <- sd(trans)  
+  hist(trans,freq=FALSE,main = "Carb.Flow",xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+  plot(trans)
+jeffsVars.imp <- cbind(jeffsVars.imp,Carb.Flow.Trans=trans)
+```
+  
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~Carb.Flow.Trans, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~Carb.Flow.Trans, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~Carb.Flow.Trans, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~Carb.Flow.Trans, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~Carb.Flow.Trans, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+
+Next, we'll work with the Density variable.  
+```{r,warning=FALSE}
+# look at a couple of the variables first
+lambda <- BoxCox.lambda(jeffsVars.pred$Density)
+trans <- BoxCox(jeffsVars.pred$Density,lambda)
+  m <- mean(trans)
+  s <- sd(trans)  
+  hist(trans,freq=FALSE,main = "Density",xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+  plot(trans)
+jeffsVars.imp <- cbind(jeffsVars.imp,Density.Trans=trans)
+```
+  
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~Density.Trans, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~Density.Trans, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~Density.Trans, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~Density.Trans, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~Density.Trans, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+  
+Next, we'll work with the MFR variable.  
+```{r,warning=FALSE}
+# look at a couple of the variables first
+lambda <- BoxCox.lambda(jeffsVars.pred$MFR)
+trans <- BoxCox(jeffsVars.pred$MFR,lambda)
+  m <- mean(trans)
+  s <- sd(trans)  
+  hist(trans,freq=FALSE,main = "MFR",xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+  plot(trans)
+jeffsVars.imp <- cbind(jeffsVars.imp,MFR.Trans=trans)
+```
+  
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~MFR.Trans, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~MFR.Trans, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~MFR.Trans, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~MFR.Trans, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~MFR.Trans, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+  
+Next, we'll work with the Bslling variable.  
+```{r,warning=FALSE}
+# look at a couple of the variables first
+lambda <- BoxCox.lambda(jeffsVars.pred$Balling)
+trans <- BoxCox(jeffsVars.pred$Balling,lambda)
+  m <- mean(trans)
+  s <- sd(trans)  
+  hist(trans,freq=FALSE,main = "Balling",xlab="")
+  curve(dnorm(x,mean=m,sd=s),col="darkblue",lwd=2,add=TRUE)
+  plot(trans)
+jeffsVars.imp <- cbind(jeffsVars.imp,Balling.Trans=trans)
+```
+  
+```{r,warning=FALSE}
+# Run algorithms using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~Balling.Trans, data=jeffsVars.imp, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~Balling.Trans, data=jeffsVars.imp, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+# GLMNET
+set.seed(624)
+#fit.glmnet <- train(PH~Filler.Speed, data=jeffsVars.imp, method="glmnet", metric=metric,
+#                    preProc=c("center", "scale"), trControl=trainControl)
+# SVM
+set.seed(624)
+fit.svm <- train(PH~Balling.Trans, data=jeffsVars.imp, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~Balling.Trans, data=jeffsVars.imp, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~Balling.Trans, data=jeffsVars.imp, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Compare algorithms
+#feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+#                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn))
+summary(feature_results)
+
+```
+  
+The 1-on-1 modeling results have been so poor that we're going to try a modeling experiment using all variables in the set (in their transformed state if applicable).
+  
+```{r,warning=FALSE}
+# generate a generalize linear model with all variables
+whole.model <- glm(PH ~ Filler.Level+Filler.Speed.Trans+Temperature.Trans+Usage.cont.Trans+Carb.Flow.Trans+Density.Trans+MFR.Trans+Balling.Trans, family=gaussian(link='identity'),data=jeffsVars.imp)
+stepwise <- step(whole.model, direction = "both")
+stepwise
+```
+
+
+
