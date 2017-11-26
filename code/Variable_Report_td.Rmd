@@ -1,0 +1,194 @@
+---
+title: "Variable Report"
+author: "Tom Detzel"
+subtitle: Cuny MSDA 624 Project 2
+date: "11/25/2017"
+output:
+    prettydoc::html_pretty:
+    theme: leonid
+    highlight: github
+    toc: yes
+---
+
+```{r setup, warning=F, message=F, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required packages
+suppressMessages(library(easypackages))
+suppressMessages(libraries("tidyverse", "nnet", "kernlab", "caret", "car", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "Hmisc", "mi", "betareg", "mice", "rpart", "party", "partykit", "gbm", "ipred", "VIM"))
+
+```
+
+### Get the data
+
+```{r warning=F, message=F}
+
+# read in the data
+df <- read.csv("data/StudentData.csv", header=T, strip.white=T)
+# str(df)
+
+```
+
+### Get my variables
+
+```{r}
+df <- df[, 25:33]
+
+```
+
+### Missingness  
+
+Missing values aren't a big problem with these vars.
+
+```{r}
+## assumes '0' is an NA
+zero_vals <- data.frame(cbind(colSums(df==0)))
+colnames(zero_vals) <- "zero_count"
+pander(zero_vals)
+
+```
+
+### Work with complete cases  
+  
+We lost 40 observations, a de minimus number. 
+
+```{r}
+
+# recode '0' as NA
+df[df==0] <- NA
+
+# complete cases
+df_c <- na.omit(df) 
+
+#reorder cols to make PH last
+df_c <- df_c[c(1,3:9,2)]
+
+```
+
+### Exploratory plots
+
+Histograms and density plots show the bimodal character of several variables: Bowl.Setpoint, Pressure.Setpoint, Alch.Rel, Carb.Rel, and Balling.Lvl.
+
+### Histograms
+
+```{r fig.height=12, fig.width=12}
+
+# histograms for each variable
+par(mfrow=c(4,2))
+for(i in c(1:8)) {
+  hist(df_c[,i], main=names(df_c)[i], col="lightblue")
+}
+
+```
+
+### Density plots
+
+```{r fig.height=10, fig.width=12}
+
+# density plot for each var
+par(mfrow=c(2,4))
+for(i in 1:8) {
+  plot(density(df_c[,i]), main=names(df_c)[i])
+}
+
+```
+
+### Boxplots
+
+```{r fig.height=10, fig.width=12}
+# boxplots
+par(mfrow=c(2,4))
+for(i in 1:8) {
+  boxplot(df_c[,i], main=names(df_c)[i], col="lightblue")
+}
+```
+
+### XY plots
+
+Pressure.Vacuum, Oxygen Filler, Bowl.Setpoint and Carb.Rel all have a postive association with PH; Pressure.Setpoint has a modest negative correlation.
+
+```{r}
+
+par(mfrow=c(2,4))
+for(i in 1:8) {
+  plot(df_c[,i], df_c$PH, xlab=colnames(df_c)[i], ylab="PH", col="lightblue")
+  abline(lsfit(df_c[,i], df_c$PH), col="red", lwd=2)
+}
+```
+
+### Correlation plot
+  
+Alch.Rel, Carb.Rel and Balling.Lvl are strongly correlated to each other. None of the vars is strongly correlated with PH.
+
+```{r}
+
+# correlation plot 
+correlations <- cor(df_c)
+corrplot(correlations, method="circle")
+
+```
+
+### Variable importance
+
+We'll fit linear, Random Forest and Cubist models to test variable importance. Results suggest that Air.Pressure isn't an important variable and could be eliminated to simplify the model.
+  
+```{r}
+# fit models
+
+# Run lm using 10-fold cross-validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=1)
+metric <- "RMSE"
+
+# LM
+set.seed(100)
+fit.lm <- train(PH~., data=df_c, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# Cubist
+set.seed(100)
+fit.cubist <- train(PH~., data=df_c, method="cubist", metric=metric,
+                    ppreProc=c("center", "scale"), trControl=trainControl)
+
+# Random Forest
+set.seed(100)
+fit.rf <- train(PH~., data=df_c, method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                trControl=trainControl,
+                importance=TRUE)
+
+```
+
+### Error comparison
+
+```{r}
+
+modelResults <- resamples(list(LM=fit.lm, Cubist=fit.cubist, RF=fit.rf))
+
+summary(modelResults)
+
+```
+
+### Varible importance, Cubist
+
+```{r}
+
+varImp(fit.cubist)
+
+```
+
+### Variable importance plot, Random Forest
+
+```{r}
+
+varImp(fit.rf)
+
+```
+
+### Variable importance, linear fit
+
+Results show that Pressure.Vaccum, Bowl.Setpoint, Pressure.Setpoint, Alch.Rel and Balling.Lvl all are significant at p <.001. In this model, these predictors explain ony 19 percent of the variation in PH.
+
+```{r}
+summary(fit.lm)
+```
+
