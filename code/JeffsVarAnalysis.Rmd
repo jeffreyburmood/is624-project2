@@ -1,18 +1,67 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Jeff's Variable Analysis"
+output:
+  pdf_document: default
+  html_notebook: default
 ---
-
-
+  
+# Executive Summary  
+This is an analysis of the following predictor variables:  
+ $ Filler.Level     : num  121 119 120 118 119 ...  
+ $ Filler.Speed     : int  4002 3986 4020 4012 4010 4014 0 1004 4014 4028 ...  
+ $ Temperature      : num  66 67.6 67 65.6 65.6 66.2 65.8 65.2 65.4 66.6 ...  
+ $ Usage.cont       : num  16.2 19.9 17.8 17.4 17.7 ...  
+ $ Carb.Flow        : int  2932 3144 2914 3062 3054 2948 30 684 2902 3038 ...  
+ $ Density          : num  0.88 0.92 1.58 1.54 1.54 1.52 0.84 0.84 0.9 0.9 ...  
+ $ MFR              : num  725 727 735 731 723 ...  
+ $ Balling          : num  1.4 1.5 3.14 3.04 3.04 ...  
+  
+The following activities were performed:  
+1) Review basic statistics for each variable.  
+2) Remove rows where response variable value is zero.  
+3) Determined high number of zeros for predictor variables were actually missing data so replaced zeros with NAs.  
+4) Generated imputed values for all missing data in predictor variables.  
+5) Generated boxplots, histograms, and scatter plots for each predictor variable to analyze distributions.  
+6) Performed Box Cox transformations for variable with poor distributions.  
+7) Performed 1-on-1 regression analysis for each predictor variable against the response variable for numerous regression model focusing on RMSE optimization and compared models results.  
+8) Performed a step-wise, both forward and backward, generalize linear model analysis focused on optimizing AIC to identify the most revelant variable relationships.  
+  
+Variable Analysis Results:  
+The predictor variable distributions are generally poor, and all but one variable required a Box Cox-selected transformation which, in most cases, yielded only slight improvements.  
+  
+The 1-on-1 regression modeling yielding generally poor results with poor RMSE values and terrible R-squared values resulting in the conlusion that no single predictor variable from the set has a significant influence or effect on the response variable.  
+  
+The step-wise regression modeling resulting in generally poor results as well, but the resulting model did eliminate the variable Filler.Speed when arriving an the final model.  
+  
+Conclusions:  
+None of the predictor variables in this set have a significant influence on PH, and all have troubled data distributions. A comparision of the distribution anomallies should be made across all of the data set variables to determine if there is a systemic cause. Pending that analysis, the variables in this set, minus the Filler.Speed variable, should be combined with other candidate predictor variables for further modeling analysis.  
+  
+  
 ```{r}
+suppressWarnings(suppressMessages(library(knitr)))
+suppressWarnings(suppressMessages(library(mice)))
+suppressWarnings(suppressMessages(library(fBasics)))
+suppressWarnings(suppressMessages(library(nnet)))
+suppressWarnings(suppressMessages(library(kernlab)))
+suppressWarnings(suppressMessages(library(caret)))
+suppressWarnings(suppressMessages(library(randomForest)))
+suppressWarnings(suppressMessages(library(mlbench)))
+suppressWarnings(suppressMessages(library(MASS)))
+suppressWarnings(suppressMessages(library(rpart)))
+suppressWarnings(suppressMessages(library(party)))
+suppressWarnings(suppressMessages(library(partykit)))
+suppressWarnings(suppressMessages(library(gbm)))
+suppressWarnings(suppressMessages(library(ipred)))
+suppressWarnings(suppressMessages(library(forecast)))
+
+#suppressMessages(libraries("tidyverse", "nnet", "kernlab", "caret", "randomForest", "mlbench","MASS", "stats", "pls", "Hmisc", "betareg", "rpart", "party", "partykit", "gbm", "ipred"))
+
+# read in the data locally
 ph.data <- read.csv("/Users/JeffAtLaptop/Dropbox/School/DATA624-PredictiveAnalytics/Project2/StudentData.csv",header = TRUE, stringsAsFactors = FALSE)
 summary(ph.data)
 ```
 
 ```{r,warning=FALSE}
-suppressWarnings(suppressMessages(library(knitr)))
-suppressWarnings(suppressMessages(library(mice)))
-suppressWarnings(suppressMessages(library(fBasics)))
 
 # setup the dataset with just jeffs variables
 jeffsList <- c("PH","Filler.Level", "Filler.Speed","Temperature","Usage.cont","Carb.Flow","Density","MFR","Balling")
@@ -545,5 +594,14 @@ summary(feature_results)
 
 ```
   
+The 1-on-1 modeling results have been so poor that we're going to try a modeling experiment using all variables in the set (in their transformed state if applicable).
+  
+```{r,warning=FALSE}
+# generate a generalize linear model with all variables
+whole.model <- glm(PH ~ Filler.Level+Filler.Speed.Trans+Temperature.Trans+Usage.cont.Trans+Carb.Flow.Trans+Density.Trans+MFR.Trans+Balling.Trans, family=gaussian(link='identity'),data=jeffsVars.imp)
+stepwise <- step(whole.model, direction = "both")
+stepwise
+```
+
 
 
