@@ -1,0 +1,257 @@
+---
+title: "Data624_Project2"
+author: "Thomas Detzley, Arindam Barman, Jeffrey Burmood, Kumudini Bhave"
+date: "November 18, 2017"
+always_allow_html: yes
+output: 
+     html_document:
+          fontsize: 35pt
+          highlight: pygments
+          theme: cerulean
+          toc: yes
+     pdf_document:
+          number_sections: yes
+          toc: yes
+          toc_depth: 3
+     word_document: default
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadlib, include=FALSE, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+
+
+# Libraries
+
+suppressMessages(library(easypackages))
+suppressWarnings(suppressMessages(libraries("RCurl", "tidyr","dplyr","DT","knit", "ggplot2","Amelia","corrplot","mi","mice","DMwR","fBasics","forecast","tidyverse", "nnet", "kernlab", "caret", "car", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "Hmisc", "mi", "betareg", "mice", "rpart", "party", "partykit", "gbm", "ipred", "VIM")))
+
+```
+
+
+
+## Predicting PH For Beverages
+
+
+### Reading the data
+
+
+```{r loaddata, warning=FALSE,message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+# Retrieving the csv file of dataset from github for reproducibility
+
+# NEED TO PUT THS IS JEFFREYS GITHUB UNDER DATA AND GIVE A RAW LINK TO THAT
+studentdata.url <- "https://raw.githubusercontent.com/DataDriven-MSDA/DATA624_PredictiveAnalytics/master/Final_Project.csv"
+
+# the dataset contians blanks which we have marked as NA values while importing
+studentdatadf <- read.csv(studentdata.url, header=T,sep=",", strip.white=T, na.strings=c("","NA"))
+
+studentdatadf <- studentdatadf[,-1] # Since a column X was introduced when converint into csv
+     
+# convert to data.frame
+View((studentdatadf)) # to be commented out later
+
+# No Of observations and possible predictor variabless
+nrow(studentdatadf)
+ncol(studentdatadf)
+
+
+```
+
+
+### Data Exploration
+
+**Response Variable**
+
+The **PH** is the response variable in the dataset. 
+
+**Histogram of response varaible : PH**
+```{r dataex, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+ggplot(studentdatadf, aes(x=PH)) + geom_histogram() + ggtitle("Histogram Response variable : PH")
+
+```
+
+#### Summary of Predictors
+We will now look at the summary of all the continuous predictor variables.
+
+```{r datasumm, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+
+# Displaying Summary Results Of Possible Constinuous Predictors
+summsubdata <- rbind(
+#summary(studentdatadf$Brand.Code),
+summary(studentdatadf$Carb.Volume),
+summary(studentdatadf$Fill.Ounces),
+summary(studentdatadf$PC.Volume),
+summary(studentdatadf$Carb.Pressure),
+summary(studentdatadf$Carb.Temp),
+summary(studentdatadf$PSC),
+summary(studentdatadf$PSC.Fill),
+summary(studentdatadf$PSC.CO2),
+summary(studentdatadf$Mnf.Flow),
+summary(studentdatadf$Carb.Pressure1),
+summary(studentdatadf$Fill.Pressure),
+summary(studentdatadf$Hyd.Pressure1),
+summary(studentdatadf$Hyd.Pressure2),
+summary(studentdatadf$Hyd.Pressure3),
+summary(studentdatadf$Hyd.Pressure4),
+summary(studentdatadf$Filler.Level),
+summary(studentdatadf$Filler.Speed),
+summary(studentdatadf$Temperature),
+summary(studentdatadf$Usage.cont),
+summary(studentdatadf$Carb.Flow),
+summary(studentdatadf$Density),
+summary(studentdatadf$MFR),
+summary(studentdatadf$Balling),
+summary(studentdatadf$Pressure.Vacuum),
+summary(studentdatadf$Oxygen.Filler),
+summary(studentdatadf$Bowl.Setpoint),
+summary(studentdatadf$Air.Pressurer),
+summary(studentdatadf$Alch.Rel),
+summary(studentdatadf$Carb.Rel),
+summary(studentdatadf$Balling.Lvl)
+)
+#"Brand.Code",
+rownames(summsubdata) <- c("Carb.Volume","Fill.Ounces","PC.Volume","Carb.Pressure","Carb.Temp","PSC","PSC.Fill","PSC.CO2","Mnf.Flow","Carb.Pressure1","Fill.Pressure","Hyd.Pressure1","Hyd.Pressure2","Hyd.Pressure3","Hyd.Pressure4","Filler.Level","Filler.Speed","Temperature","Usage.cont","Carb.Flow","Density","MFR","Balling","Pressure.Vacuum","Oxygen.Filler","Bowl.Setpoint","Air.Pressurer","Alch.Rel","Carb.Rel","Balling.Lvl")
+
+pander(summsubdata)
+
+
+```
+
+
+
+Studying the data we find : (THIS SECTION IS TO BE ADDED TO/ EDITED)
+
+In Brand variable there are 120 records having no Brand levels and assigned to NA.
+
+Also following variables having NA values  Carb.Volume =10 , Fill.Ounces=38 , PC.Volume=39, Carb.Pressure =27, Carb.Temp= 26, Psc=33, psc.Fill=23, PH=4 (response variable). 
+
+
+Analysis of missing values Doing summary off missing values by combinations of variables. There are only 2 cases where more than 4 variables are missing for a row.
+
+
+
+The PSC CO2 values are all near zero values, so a '0' value is very much possible and of some meaning .So a 0 valuee for this variable need not be considered as an NA.
+
+The Mnf.Flow values are in negative and mostly around -100, but we do see a minimum value of 0 which could be actually an NA / not recorded value and not a real value
+Similarly Carbon Pressure1, Fill Pressure has most of the value above 100 or in 40 - 60 range respectively and a few possibly NA values which are recorded as 0 value.
+
+Hyd Pressure 1,Hyd Pressure 2, Hyd Pressure 3 are similar in range and have some NA values with 0 recorded . 
+
+Hyd Pressure 4 range is a bit higher more aournd 80 to 120; a zero value here is an NA value
+
+
+#### Histograms Of Predictors
+Lets plot the variables.
+
+
+
+```{r datahist, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+# Plots for all varaibles
+
+
+multi.hist(studentdatadf[2:8])
+multi.hist(studentdatadf[9:16])
+multi.hist(studentdatadf[17:24])
+multi.hist(studentdatadf[25:33])
+
+
+```
+
+
+#### Handling Missing Values
+
+We  see missing values as well as lot of zero values in many predictor variable.However it may very well be so that all the '0' (zero) values that we see could be possibly 'NA'. We will keep these zero values as real values and go ahead with process by just imputing the NA .
+We will further impute the data. Also, We would need to look at each of the variables and study them to decide if the zero values  made sense or if it needs to be considered as a wrong recording of data.
+
+We will use the **MICE** package for imputing the NA values.
+
+```{r missval,echo=FALSE, results="hide", warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+apply(studentdatadf,2, pMiss)
+apply(studentdatadf,1,pMiss)
+# inspect missing values
+md.pattern(studentdatadf)
+```
+
+```{r missvalplot, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+
+
+# plot missing values
+mice_plot <- aggr(studentdatadf, col=c('navyblue','yellow'),
+                    numbers=TRUE, sortVars=TRUE,
+                    labels=names(studentdatadf), cex.axis=.7,
+                    gap=3, ylab=c("Missing data","Pattern"))
+
+
+# impute with Predictive mean matching method
+
+studentdataimp <- mice(studentdatadf, m=5, maxit = 50, method = 'pmm', seed = 500, printFlag = F)
+
+summary(studentdataimp)
+
+
+# checking for any NAs
+anyNA(studentdataimp)
+
+# Lets go ahead with the dataset#2 from the 5 datasets
+studentdatapmm <- complete(studentdataimp,2)
+
+
+
+```
+
+Let's see the plots after imputation
+
+
+```{r dataplot, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+# density plot for each var
+par(mfrow=c(8,4))
+for(i in c(2:33)) {
+ggplot(studentdatapmm, aes(x= studentdatapmm[,i])) + geom_density()
+}
+
+
+
+```
+
+
+
+**Correlation Matrix.**
+
+Lets plot the correlation plot of the imputed dataset
+
+```{r corr, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+# Correlation Plot for continuous predictors
+correlations <- cor(studentdatapmm[,2:33],use="pairwise.complete.obs")
+corrplot::corrplot(correlations, type="lower", tl.cex = 0.7, mar=c(0,4,0,4),c1.cex=2.5)
+
+
+
+```
+
+**Forming Training And Test Datasets**
+
+```{r traintest, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+set.seed(21)
+randomobs <- sample(seq_len(nrow(studentdatapmm)), size = floor(0.8 * nrow(studentdatapmm)))
+
+trainnew <- studentdatapmm[randomobs,]
+testnew <- studentdatapmm[-randomobs,]
+
+
+```
+

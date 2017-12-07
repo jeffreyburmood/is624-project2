@@ -1,0 +1,319 @@
+---
+title: "Project 2 Models"
+author: "Tom Detzel, Dec. 1, 2017"
+subtitle: CUNY MSDA DATA 624
+output:
+    prettydoc::html_pretty:
+    theme: leonid
+    highlight: github
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=F, message=F)
+
+# load required packages
+
+suppressMessages(library(easypackages))
+
+suppressMessages(libraries("tidyverse", "nnet", "neuralnet", "kernlab", "caret", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "e1071", "betareg", "mice", "rpart", "party", "partykit", "gbm", "ipred", "VIM", "dummies"))
+
+```
+
+### Get the data and count NA's
+
+```{r}
+
+# read in the data, including all NAs
+df <- read.csv("data/StudentData.csv", header=T, strip.white=T, na.strings=c("","NA"))
+
+# check Brand.Code
+summary(df$Brand.Code)
+str(df$Brand.Code)
+
+NA_vals <- data.frame(cbind(colSums(is.na(df))))
+colnames(NA_vals) <- "NA_count"
+
+```
+
+### Impute with median values
+
+```{r}
+
+# impute with median values
+
+df_imp <- data.frame(impute(df[, 2:33], "median"))
+
+# use most common value for factor Brand.Code
+df_imp <- cbind(df_imp, df$Brand.Code)
+colnames(df_imp)[33] <- "Brand.Code"
+df_imp$Brand.Code[is.na(df_imp$Brand.Code)] <- 'B'
+
+anyNA(df_imp)
+
+```
+
+### Look at MFR
+
+```{r}
+
+# histograms for each variable
+par(mfrow=c(4,2))
+for(i in c(20:23)) {
+  hist(df[,i], main=names(df)[i], col="lightblue")
+}
+
+```
+
+### Partition the data
+
+```{r}
+# create an 80/20 train/test set
+set.seed(100)
+validationIndex <- createDataPartition(df_imp$PH, p=0.80, list=FALSE)
+
+# test
+test <- df_imp[-validationIndex,]
+
+# training
+train <- df_imp[validationIndex,]
+
+```
+
+### Try some baseline models
+  
+```{r}
+
+# set up resampling for all the following models
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=1)
+metric <- "RMSE"
+
+# Elastic Net
+
+# required data format; must remove categorical
+y_train <- train$PH
+X_train <- train[, -c(25,33)]
+
+enetGrid <- expand.grid(.lambda = c(0, 0.01, .1),
+                        .fraction = seq(.05, 1, length = 20))
+
+set.seed(100)
+enetTune <- train(as.matrix(X_train), y_train,
+                  method = "enet",
+                  tuneGrid = enetGrid,
+                  trControl = trainControl,
+                  preProc = c("center", "scale"))
+
+# Random Forest
+set.seed(100)
+rfTune <- train(PH~., data=train, method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                trControl=trainControl)
+
+# Stochastic Gradient Boosting
+set.seed(100)
+gbmTune <- train(PH~., data=train, method="gbm", metric=metric,
+                 preProc=c("center", "scale"),
+                 trControl=trainControl, verbose=FALSE)
+
+# Neural Net with model averaging
+# must remove highly correlated vars first
+tooHigh <- findCorrelation(cor(X_train), cutoff = .75)
+X_train <- X_train[, -tooHigh]
+
+nnetGrid <- expand.grid(.decay = c(0, 0.01, .1),
+                        .size = c(1:10),
+                        .bag = FALSE)
+
+set.seed(100)
+nnetTune <- train(X_train, y_train, 
+                  method = "avNNet",
+                  tuneGrid = nnetGrid,
+                  trControl = trainControl,
+                  preProc = c("center", "scale"),
+                  linout = TRUE,
+                  trace = FALSE,
+                  MaxNWts = 10 * (ncol(X_train) + 1) + 10 + 1,
+                  maxit = 500)
+
+# Cubist
+set.seed(100)
+cubistTune <- train(PH~., data=df_imp, method="cubist", metric=metric,
+                    ppreProc=c("center", "scale"),
+                    trControl=trainControl)
+
+```
+
+### Compare the results
+
+```{r}
+
+# Compare algorithms
+ensembleResults <- resamples(list(GBM=gbmTune, EN=enetTune, RF=rfTune, CUBIST=cubistTune))
+
+summary(ensembleResults)
+
+```
+
+### Boxplot of results
+
+```{r}
+
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+bwplot(ensembleResults, scales=scales)
+
+```
+
+### Take a look at NA's
+
+```{r}
+
+# make temporary copy
+df_temp <- df 
+
+# compute percent missing
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+apply(df_temp,2, pMiss)
+apply(df_temp,1,pMiss)
+
+# inspect missing
+md.pattern(df_temp)
+
+# plot missing
+aggr_plot <- aggr(df_temp, col=c('navyblue','red'), 
+                  numbers=TRUE, sortVars=TRUE,
+                  labels=names(data), cex.axis=.7,
+                  gap=3, ylab=c("Histogram of missing data","Pattern"))
+
+```
+
+### Margin plot is optional
+
+```{r}
+# marginplot(df_temp[c(1,2)])
+
+```
+
+### Impute with Mice pkg
+
+```{r}
+# impute with predictive mean matching
+tempData <- mice(df_temp, m=5, maxit=50, meth='pmm', seed=100, printFlag=F)
+
+# midas touch algorithm failed
+# tempData2 <- mice(df_temp, m=5, maxit=50, meth='midastouch', seed=100, printFlag=F)
+
+# impute by random sample from var
+tempData3 <- mice(df_temp, m=5, maxit=50, meth='sample', seed=100, printFlag=F)
+
+# not run, impute by random forest, takes too long
+# tempData4 <- mice(df_temp, m=5, maxit=50, meth='rf', seed=100, printFlag=F)
+
+```
+
+### Check results
+
+```{r}
+
+# can use with different tempData files
+
+xyplot(tempData, PH ~ MFR+Brand.Code+Filler.Speed, pch=18, cex=1)
+densityplot(tempData)
+stripplot(tempData, pch = 20, cex = 1.2)
+
+```
+
+### Try models with multiple imputation methods
+
+```{r}
+
+# the two imputed datasets
+df_pmm <- complete(tempData,1)
+df_sample <- complete(tempData3,1)
+
+# create an 80/20 train/test set
+set.seed(100)
+validationIndex <- createDataPartition(df_sample$PH, p=0.80, list=FALSE)
+
+# test
+test <- df_sample[-validationIndex,]
+
+# training
+train <- df_sample[validationIndex,]
+
+# set up resampling for all the following models
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=1)
+metric <- "RMSE"
+
+# Elastic Net
+# required data format; must remove categorical
+y_train <- train$PH
+X_train <- train[, -c(1,26)]
+
+enetGrid <- expand.grid(.lambda = c(0, 0.01, .1),
+                        .fraction = seq(.05, 1, length = 20))
+
+set.seed(100)
+enetTune2 <- train(as.matrix(X_train), y_train,
+                  method = "enet",
+                  tuneGrid = enetGrid,
+                  trControl = trainControl,
+                  preProc = c("center", "scale"))
+
+# Random Forest
+set.seed(100)
+rfTune2 <- train(PH~., data=df_sample, method="rf", metric=metric,
+                preProc=c("center", "scale"),
+                trControl=trainControl)
+
+# Stochastic Gradient Boosting
+set.seed(100)
+gbmTune2 <- train(PH~., data=df_sample, method="gbm", metric=metric,
+                 preProc=c("center", "scale"),
+                 trControl=trainControl, verbose=FALSE)
+
+# Neural Net with model averaging
+# must remove highly correlated vars first
+# tooHigh <- findCorrelation(cor(X_train), cutoff = .75)
+# X_train <- X_train[, -tooHigh]
+
+# nnetGrid <- expand.grid(.decay = c(0, 0.01, .1),
+#                         .size = c(1:10),
+#                         .bag = FALSE)
+
+# set.seed(100)
+# nnetTune <- train(X_train, y_train, 
+#                   method = "avNNet",
+#                   tuneGrid = nnetGrid,
+#                   trControl = trainControl,
+#                   preProc = c("center", "scale"),
+#                   linout = TRUE,
+#                   trace = FALSE,
+#                   MaxNWts = 10 * (ncol(X_train) + 1) + 10 + 1,
+#                   maxit = 500)
+
+# Cubist
+set.seed(100)
+cubistTune2 <- train(PH~., data=df_sample, method="cubist", metric=metric,
+                    ppreProc=c("center", "scale"),
+                    trControl=trainControl)
+
+```
+
+### Compare the results
+
+```{r}
+
+# Compare algorithms
+ensembleResults3 <- resamples(list(GBM=gbmTune2, EN=enetTune2, RF=rfTune2, CUBIST=cubistTune2))
+
+summary(ensembleResults3)
+
+```
+
+```{r}
+summary(ensembleResults)
+summary(ensembleResults2)
+summary(ensembleResults3)
+```
+
