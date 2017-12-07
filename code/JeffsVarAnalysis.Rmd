@@ -603,5 +603,15 @@ stepwise <- step(whole.model, direction = "both")
 stepwise
 ```
 
+```{r,warning=FALSE}
+# look at all of the variables to do a complete vs imputated comparision
+
+# do a zero count of all variables
+
+# collect the mean of each variable set
+
+# remove the variables we're not going to try and fix with imputation
+```
+
 
 
