@@ -30,7 +30,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 suppressMessages(library(easypackages))
 suppressWarnings(suppressMessages(libraries("RCurl", "tidyr","dplyr","DT","knit", "ggplot2","Amelia","corrplot","mi","mice","DMwR","fBasics","forecast","tidyverse", "nnet", "kernlab", "caret", "car", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "Hmisc", "mi", "betareg", "mice", "rpart", "party", "partykit", "gbm", "ipred", "VIM")))
-
+library(ggmosaic)
 ```
 
 
@@ -46,25 +46,76 @@ suppressWarnings(suppressMessages(libraries("RCurl", "tidyr","dplyr","DT","knit"
 # Retrieving the csv file of dataset from github for reproducibility
 
 # NEED TO PUT THS IS JEFFREYS GITHUB UNDER DATA AND GIVE A RAW LINK TO THAT
-studentdata.url <- "https://raw.githubusercontent.com/DataDriven-MSDA/DATA624_PredictiveAnalytics/master/Final_Project.csv"
+studentdata.url <- "https://raw.githubusercontent.com/jeffreyburmood/is624-project2/master/code/data/StudentData.csv"
 
-# the dataset contians blanks which we have marked as NA values while importing
+# the dataset contains blanks which we have marked as NA values while importing
 studentdatadf <- read.csv(studentdata.url, header=T,sep=",", strip.white=T, na.strings=c("","NA"))
 
-studentdatadf <- studentdatadf[,-1] # Since a column X was introduced when converint into csv
+#REMOVED THIS LINE AS NEW FILE DOESNT GENERATE THiS EXRTA COLUMN,
+#studentdatadf <- studentdatadf[,-1] # Since a column X was introduced when converint into csv
      
 # convert to data.frame
-View((studentdatadf)) # to be commented out later
+#View((studentdatadf)) # to be commented out later
 
 # No Of observations and possible predictor variabless
 nrow(studentdatadf)
 ncol(studentdatadf)
 
 
+# Studying the Validation Dataset for which PH values are to be predicted
+
+studentdataPREDICT.url <-"https://raw.githubusercontent.com/jeffreyburmood/is624-project2/master/code/data/StudentEvaluation-%20TO%20PREDICT.csv"
+
+
+# the dataset contains blanks which we have marked as NA values while importing
+
+studentdataPREDICTdf <- read.csv(studentdataPREDICT.url, header=T,sep=",", strip.white=T, na.strings=c("","NA"))
+
+     
+# convert to data.frame
+#View((studentdataPREDICTdf)) # to be commented out later
+
+# No Of observations and possible predictor variabless
+nrow(studentdataPREDICTdf)
+ncol(studentdataPREDICTdf)
+
 ```
 
 
 ### Data Exploration
+
+**Compare NA counts Study Data And Validation Data**
+
+```{r compare, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
+
+# count NA
+studentdatadf_missing <- data.frame(cbind(colSums(is.na(studentdatadf))))
+colnames(studentdatadf_missing) <- "Study Data Missing"
+
+studentdataPREDICTdf_missing <- data.frame(cbind(colSums(is.na(studentdataPREDICTdf))))
+colnames(studentdataPREDICTdf_missing) <- "Validation Data Missing"
+
+# compare NA in train and validation datasets
+compare_missing <- as.data.frame(cbind(studentdatadf_missing, studentdataPREDICTdf_missing))
+pander(compare_missing, caption= "Missing Values Comparison For Training And Validation Data")
+
+
+
+# compute percent missing
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+studentdatadf_pct <- apply(studentdatadf, 2, pMiss)
+studentdatadf_pct
+studentdataPREDICTdf_pct <- apply(studentdataPREDICTdf, 2, pMiss)
+
+# compare percent missing 
+compare_pct_missing <- round(as.data.frame(cbind(studentdatadf_pct, studentdataPREDICTdf_pct)), 2)
+colnames(compare_pct_missing) <- c("Study Data Missing %","Validation Data Missing %")
+pander(compare_pct_missing, caption= "Missing % Comparison For Training And Validation Data")
+
+
+```
+
+
 
 **Response Variable**
 
@@ -148,6 +199,9 @@ Hyd Pressure 1,Hyd Pressure 2, Hyd Pressure 3 are similar in range and have some
 Hyd Pressure 4 range is a bit higher more aournd 80 to 120; a zero value here is an NA value
 
 
+NOTE: THIS NEEDS TO BE ADDED :more info on other variables
+
+
 #### Histograms Of Predictors
 Lets plot the variables.
 
@@ -217,14 +271,56 @@ Let's see the plots after imputation
 ```{r dataplot, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
 
 # density plot for each var
-par(mfrow=c(8,4))
+#par(mfrow=c(16,2))
 for(i in c(2:33)) {
 ggplot(studentdatapmm, aes(x= studentdatapmm[,i])) + geom_density()
 }
 
 
 
+# Separating the Predictor set for plotting
+predictorset <- studentdatapmm[,c(1,2:25,27:33)]
+dim(predictorset)
+#View(studentdatadf)
+#class(predictorset [,11])
+
+# Bar Plot For Predictor Brand.Code
+counts <- table(studentdatapmm$Brand.Code,studentdatapmm$PH )
+barplot(counts, main="Brand Code Distribution", 
+  	xlab="PH",ylab="Count", col=c("light blue","blue", "dark blue", "turquoise"),
+ 	legend = rownames(counts))
+
+
+
+
+# Box Plot For Predictors
+colnamepred <- colnames(predictorset)
+#par(mfrow=c(16,2))
+for (i in 2:length(predictorset)){
+  boxplot(predictorset[,i],main = paste("BoxPlot : ", colnamepred[i]), col = "light blue")
+}
+
+
+# Plots With Response Variable : PH
+
+for(i in c(2:25, 27:33)) {
+  plot( y=studentdatapmm$PH, x=studentdatapmm[,i], xlab=colnames(studentdatapmm)[i], ylab="Response : PH", col="lightblue")
+  abline(lsfit(studentdatapmm[,i], studentdatapmm$PH), col="red", lwd=2)
+}
+
+
+
+
 ```
+
+
+NOTE: THIS NEEDS TO BE ADDED :
+
+Description or analysis of plots for most variable
+
+which variables to keep for models 
+
+which variables to get rid off for the models
 
 
 
@@ -242,6 +338,15 @@ corrplot::corrplot(correlations, type="lower", tl.cex = 0.7, mar=c(0,4,0,4),c1.c
 
 ```
 
+
+**Transformation**  NOTE: THIS NEEDS TO BE ADDED
+
+Based on a quick analysis of the basic statistics and plots, all of the predictor variables except Filler.Level will require a transformation to address issues with the variable's data distribution.  
+
+The Filler.Level variable distribution is fairly normal with few outliers so we will not perform any transformations and, instead, perform an analysis of how the variable interacts with the response variable in various regression models.  
+
+
+
 **Forming Training And Test Datasets**
 
 ```{r traintest, warning=FALSE, message=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=150)}
@@ -255,3 +360,8 @@ testnew <- studentdatapmm[-randomobs,]
 
 ```
 
+
+NOTE : For All Plots, in next version, I will tweak the figure width parameter to fit in a row and use par(mfrow ...)
+
+
+**Model**
