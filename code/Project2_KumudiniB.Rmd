@@ -29,7 +29,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Libraries
 
 suppressMessages(library(easypackages))
-suppressWarnings(suppressMessages(libraries("RCurl", "tidyr","dplyr","DT","knit", "ggplot2","Amelia","corrplot","mi","mice","DMwR","fBasics","forecast","tidyverse", "nnet", "kernlab", "caret", "car", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "Hmisc", "mi", "betareg", "mice", "rpart", "party", "partykit", "gbm", "ipred", "VIM")))
+suppressWarnings(suppressMessages(libraries("RCurl", "tidyr","dplyr","DT","knit", "ggplot2","Amelia","corrplot","mi","mice","DMwR","fBasics","forecast","tidyverse", "nnet", "kernlab", "caret", "car", "earth", "pander", "randomForest", "mlbench","ModelMetrics", "lars", "MASS", "stats", "pls", "psych", "corrplot", "Hmisc", "mi", "betareg", "mice", "rpart", "party", "partykit", "gbm", "ipred", "VIM", "elasticnet")))
 library(ggmosaic)
 ```
 
@@ -259,7 +259,7 @@ summary(studentdataimp)
 anyNA(studentdataimp)
 
 # Lets go ahead with the dataset#2 from the 5 datasets
-studentdatapmm <- complete(studentdataimp,2)
+studentdatapmm <- mice::complete(studentdataimp,2)
 
 
 
@@ -365,3 +365,192 @@ NOTE : For All Plots, in next version, I will tweak the figure width parameter t
 
 
 **Model**
+
+# Model Training and Tuning 
+-------------------------  
+- List models we tried  
+- Discuss parameters and resampling  
+- Comparative charts of R^2, RMSE, MAE  
+- Concludes by explaining why we chose two top models  
+  
+```{r,warning=FALSE}
+# First, we'll train a set of linear models 
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "RMSE"
+
+# LM
+set.seed(624)
+fit.lm <- train(PH~., data=trainnew, method="lm", metric=metric,
+                preProc=c("center", "scale"), trControl=trainControl)
+
+# GLM
+set.seed(624)
+fit.glm <- train(PH~., data=trainnew, method="glm", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# GLMNET
+set.seed(624)
+fit.glmnet <- train(PH~., data=trainnew, method="glmnet", metric=metric,
+                    preProc=c("center", "scale"), trControl=trainControl)
+
+# Next we'll train the non-linear models 
+
+# SVM
+set.seed(624)
+fit.svm <- train(PH~., data=trainnew, method="svmRadial", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# CART
+set.seed(624)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(PH~., data=trainnew, method="rpart", metric=metric,
+                  tuneGrid=grid, preProc=c("center", "scale"),
+                  trControl=trainControl)
+# KNN
+set.seed(624)
+fit.knn <- train(PH~., data=trainnew, method="knn", metric=metric,
+                 preProc=c("center", "scale"), trControl=trainControl)
+
+# Elastic Net
+# required data format, elastic net requires dummy vars for Brand.Code,
+
+y_train <- trainnew$PH
+X_train <- trainnew[, -c(1,26)]
+dummies <- dummy.code(trainnew$Brand.Code)
+X_train <- cbind(X_train, dummies[, 2:4])
+
+# fit a grid and center, scale the data
+# this model computes quickly
+enetGrid <- expand.grid(.lambda = c(0, 0.01, .1),
+                        .fraction = seq(.05, 1, length = 20))
+
+set.seed(624)
+#fit.nnet <- train(as.matrix(X_train), y_train,
+#                  method = "enet",
+#                  tuneGrid = enetGrid,
+#                  trControl = trainControl,
+#                  preProc = c("center", "scale"))
+
+# Next we'll train the tree-based models 
+
+# Random Forest
+# here we can use Brand.Code as a factor
+set.seed(624)
+#fit.rf <- train(X_train, y_train, method="rf", metric=metric,
+#                preProc=c("center", "scale"),
+#                trControl=trainControl)
+
+# Stochastic Gradient Boosting
+set.seed(624)
+fit.gbm <- train(X_train, y_train, method="gbm", metric=metric,
+                 preProc=c("center", "scale"),
+                 trControl=trainControl, verbose=FALSE)
+
+# Cubist
+set.seed(624)
+fit.cubist <- train(X_train, y_train, method="cubist", metric=metric,
+                    ppreProc=c("center", "scale"),
+                    trControl=trainControl)
+
+# Compare algorithms
+feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
+                                  SVM=fit.svm, CART=fit.cart, KNN=fit.knn,
+                                  GBM=fit.gbm, CUBIST=fit.cubist))
+
+# Look at a summary of the results
+s <- summary(feature_results)
+(s)
+```
+
+```{r,warning=FALSE}
+
+# Use the mean value of each feature result category as a basis for model performance comparison
+
+# Here's a comparison plot of the RMSE values
+rmse <- s$statistics[["RMSE"]]
+
+dfm <- melt(rmse[,1])
+x <- rownames(dfm)
+
+p <- ggplot(dfm,aes(x = x, y = value, fill=x)) + 
+    geom_bar(stat = "identity",position = "dodge") +
+    xlab(" ") +
+  scale_y_continuous("RMSE") + 
+  theme(legend.title=element_blank()) +
+  labs(title="RMSE Comparison")
+
+(p)
+
+# Here's a comparison plot of the Rsqaured values
+rsquared <- s$statistics[["Rsquared"]]
+
+dfm <- melt(rsquared[,1])
+x <- rownames(dfm)
+
+p <- ggplot(dfm,aes(x = x, y = value, fill=x)) + 
+    geom_bar(stat = "identity",position = "dodge") +
+    xlab(" ") +
+  scale_y_continuous("R-Squared") + 
+  theme(legend.title=element_blank()) +
+  labs(title="R-Squared Comparison")
+
+(p)
+
+# Here's a comparison plot of the MAE values
+mae <- s$statistics[["MAE"]]
+
+dfm <- melt(mae[,1])
+x <- rownames(dfm)
+
+p <- ggplot(dfm,aes(x = x, y = value, fill=x)) + 
+    geom_bar(stat = "identity",position = "dodge") +
+    xlab(" ") +
+  scale_y_continuous("MAE") + 
+  theme(legend.title=element_blank()) +
+  labs(title="MAE Comparison")
+
+(p)
+```
+  
+Next we'll compare the performance of the various models using the Test dataset to generate forecasts, and then analyze the accuracy of the forecasts against the actual values.  
+  
+```{r,warning=FALSE}
+# Start with the linear models again. Generate the forecast, and then analyze the forecast accuracy.
+
+
+# Perform the same analysis with the non-linear models.
+
+# Perform the same analysis with the tree-based models.
+
+# Here's a comparison plot of the RMSE values
+
+# Here's a comparison plot of the Rsqaured values
+
+# Here's a comparison plot of the MAE values
+
+# Here's a comparison plot of the forecast values
+# generate a prediction using the selected model and the test data
+pred <- predict(lmTune,newdata=cma.imp.test.pred)
+# generate a summary of how well the forecast values are
+accuracy(pred,cma.imp.test$Yield)
+# plot the forecast and the real values
+x <- seq(1:nrow(cma.imp.test))
+# the actual value are in green
+plot(x=x, y=cma.imp.test$Yield,type="l",col="green")
+# the predictions are in red
+lines(x=x, y=pred, col="red")
+```
+  
+The top performing models are .....  
+  
+We'll continue with a mroe in-depth analysis in the next section using these models.  
+  
+  
+# Prediction and Evaluation
+-------------------------
+- Run tuned models on test Data
+- Comparative results chart
+- Select best model
+- Output predictions to .csv file
+
+
