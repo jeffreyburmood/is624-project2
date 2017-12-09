@@ -259,7 +259,7 @@ summary(studentdataimp)
 anyNA(studentdataimp)
 
 # Lets go ahead with the dataset#2 from the 5 datasets
-studentdatapmm <- complete(studentdataimp,2)
+studentdatapmm <- mice::complete(studentdataimp,2)
 
 
 
@@ -365,3 +365,58 @@ NOTE : For All Plots, in next version, I will tweak the figure width parameter t
 
 
 **Model**
+
+# Model Training and Tuning 
+-------------------------  
+- List models we tried  
+- Discuss parameters and resampling  
+- Comparative charts of R^2, RMSE, MAE  
+- Concludes by explaining why we chose two top models  
+  
+```{r,warning=FALSE}
+# First, we'll train a set of linear models and generate a summary of their performance
+
+# Next, we'll train a set of non-linear models and generate a summary of their performance
+
+# Lastly, we'll train a set of tree-based modelas and generate a summary of their performance
+
+# Here's a comparison plot of the RMSE values
+
+# Here's a comparison plot of the Rsqaured values
+
+# Here's a comparison plot of the MAE values
+
+```
+  
+Next we'll compare the performance of the various models using the Test dataset to generate forecasts, and then analyze the accuracy of the forecasts against the actual values.  
+  
+```{r,warning=FALSE}
+# Start with the linear models again. Generate the forecast, and then analyze the forecast accuracy.
+
+# Perform the same analysis with the non-linear models.
+
+# Perform the same analysis with the tree-based models.
+
+# Here's a comparison plot of the RMSE values
+
+# Here's a comparison plot of the Rsqaured values
+
+# Here's a comparison plot of the MAE values
+
+```
+  
+The top performing models are .....  
+  
+We'll continue with a mroe in-depth analysis in the next section using these models.  
+  
+  
+# Prediction and Evaluation
+-------------------------
+- Run tuned models on test Data
+- Comparative results chart
+- Select best model
+- Output predictions to .csv file
+
+
+
+
