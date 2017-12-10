@@ -373,6 +373,20 @@ NOTE : For All Plots, in next version, I will tweak the figure width parameter t
 - Comparative charts of R^2, RMSE, MAE  
 - Concludes by explaining why we chose two top models  
   
+Now that we have performed an exploration of the data set and analyzed the behavior and distirbutions of the variables within the data set, we move on to an exploration of various regression models and their performance with regards to generating accurate predictions for the data set response variable, specifically, the PH variable.  
+  
+The candidate regression models will be evaluated using a training data set which represents 80% of the data values from the historical data in the data set. The remaining 20% of the data values represent a test data set used to evaluate the accuracy of the predictions from our candidate models.  
+  
+We will evaluate three categories of regression models:  
+* Linear Regression Models  
+* Non-linear Regression Models  
+* Tree-based Rgression Models  
+
+For each model we will pre-process the data by centering and scaling the data to ensure uniform treatment during model tuning. Next, each model will be tuned, or optimized, using algorithms appropriate to the model. A tuned model is a model where the applicable configuration parameters have been mathematically evaluated to optimize a target criteria. For this model analysis, the model tuning will minimize Root Mean Squared Error (RMSE) which is a frequently used measure of the differences between values predicted by the model and the values actually observed.  
+  
+After the model tuning process, a summary set of model performance criteria will be captured and a performance comparison will be conducted to identify the top performing models based on the training dataset. The performance criteria used in the comparison will include the optimized RMSE value, but also R-square and Mean Absolute Error (MAE). R-squared is a statistical measure of how close the data are to the fitted regression line, and MAE is a measure of the difference between two continuous variables, such as those variables used in the data set.
+  
+
 ```{r,warning=FALSE}
 # required data format, elastic net requires dummy vars for Brand.Code,
 
@@ -426,11 +440,11 @@ enetGrid <- expand.grid(.lambda = c(0, 0.01, .1),
                         .fraction = seq(.05, 1, length = 20))
 
 set.seed(624)
-#fit.nnet <- train(as.matrix(X_train), y_train,
-#                  method = "enet",
-#                  tuneGrid = enetGrid,
-#                  trControl = trainControl,
-#                  preProc = c("center", "scale"))
+fit.nnet <- train(as.matrix(X_train), y_train,
+                  method = "enet",
+                  tuneGrid = enetGrid,
+                  trControl = trainControl,
+                  preProc = c("center", "scale"))
 
 # Next we'll train the tree-based models 
 
@@ -456,7 +470,7 @@ fit.cubist <- train(X_train, Y_train, method="cubist", metric=metric,
 # Compare algorithms
 feature_results <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet,
                                   SVM=fit.svm, CART=fit.cart, KNN=fit.knn, 
-                                  GBM=fit.gbm, CUBIST=fit.cubist))
+                                  NNET=fit.nnet, GBM=fit.gbm, CUBIST=fit.cubist))
 
 # Look at a summary of the results
 s <- summary(feature_results)
@@ -506,7 +520,7 @@ dfm <- melt(mae[,1])
 
 x <- rownames(dfm)
 
-p <- ggplot(dfm,aes(x = reorder(x,value), y = value, fill=x)) + 
+p <- ggplot(dfm,aes(x = reorder(x,-value), y = value, fill=x)) + 
     geom_bar(stat = "identity",position = "dodge") +
     xlab(" ") +
   scale_y_continuous("MAE") + 
@@ -588,6 +602,16 @@ plot(x=x, y=Y_test,type="l",col="green", main="KNN Forecast Accuracy", ylab="", 
 # the predictions are in red
 lines(x=x, y=pred, col="red")
 
+pred <- predict(fit.nnet,newdata=X_test)
+# generate a summary of how well the forecast values are
+acc.nnet <- accuracy(pred,Y_test)
+# plot the forecast and the real values
+x <- seq(1:nrow(testnew))
+# the actual value are in green
+plot(x=x, y=Y_test,type="l",col="green", main="NNET Forecast Accuracy", ylab="", xlab="")
+# the predictions are in red
+lines(x=x, y=pred, col="red")
+
 # Perform the same analysis with the tree-based models.
 pred <- predict(fit.gbm,newdata=X_test)
 # generate a summary of how well the forecast values are
@@ -611,18 +635,51 @@ lines(x=x, y=pred, col="red")
 
 # Here's a comparison plot of the RMSE values
 rmse.acc <- vector()
-rmse.acc <- c(rmse.acc, acc.lm)
-rmse.acc <- c(rmse.acc, acc.glm)
-rmse.acc <- c(rmse.acc, acc.glmnet)
-rmse.acc <- c(rmse.acc, acc.svm)
-rmse.acc <- c(rmse.acc, acc.cart)
-rmse.acc <- c(rmse.acc, acc.knn)
-rmse.acc <- c(rmse.acc, acc.gbm)
-rmse.acc <- c(rmse.acc, acc.cubist)
+rmse.acc <- c(rmse.acc, acc.lm[2])
+rmse.acc <- c(rmse.acc, acc.glm[2])
+rmse.acc <- c(rmse.acc, acc.glmnet[2])
+rmse.acc <- c(rmse.acc, acc.svm[2])
+rmse.acc <- c(rmse.acc, acc.cart[2])
+rmse.acc <- c(rmse.acc, acc.knn[2])
+rmse.acc <- c(rmse.acc, acc.nnet[2])
+rmse.acc <- c(rmse.acc, acc.gbm[2])
+rmse.acc <- c(rmse.acc, acc.cubist[2])
+
+rmse.acc.df <- data.frame(rmse.acc,row.names=rownames(dfm))
+
+x <- rownames(dfm)
+
+p <- ggplot(rmse.acc.df,aes(x = reorder(x,rmse.acc), y = rmse.acc, fill=x)) + 
+    geom_bar(stat = "identity",position = "dodge") +
+    xlab(" ") +
+  scale_y_continuous("RMSE") + 
+  theme(legend.title=element_blank()) +
+  labs(title="RMSE Comparison")
+
+(p)
 
 # Here's a comparison plot of the MAE values
 mae.acc <- vector()
+mae.acc <- c(mae.acc, acc.lm[3])
+mae.acc <- c(mae.acc, acc.glm[3])
+mae.acc <- c(mae.acc, acc.glmnet[3])
+mae.acc <- c(mae.acc, acc.svm[3])
+mae.acc <- c(mae.acc, acc.cart[3])
+mae.acc <- c(mae.acc, acc.knn[3])
+mae.acc <- c(mae.acc, acc.nnet[3])
+mae.acc <- c(mae.acc, acc.gbm[3])
+mae.acc <- c(mae.acc, acc.cubist[3])
 
+mae.acc.df <- data.frame(mae.acc,row.names=rownames(dfm))
+
+p <- ggplot(mae.acc.df,aes(x = reorder(x,mae.acc), y = mae.acc, fill=x)) + 
+    geom_bar(stat = "identity",position = "dodge") +
+    xlab(" ") +
+  scale_y_continuous("MAE") + 
+  theme(legend.title=element_blank()) +
+  labs(title="MAE Comparison")
+
+(p)
 ```
   
 The top performing models are .....  
